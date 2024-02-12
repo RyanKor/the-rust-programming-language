@@ -397,4 +397,93 @@ match x {
       - 충돌 발생
 
 - Rust가 이 시나리오를 불가능하게 만든다고 이미 말씀드렸지만, 어떻게 불가능한지는 설명하지 않았음.
+
 - 컴파일러에게 3단계가 4단계 이전에 절대 발생하지 않는다는 것을 증명해야함.
+
+- 일반적으로 참조에는 암묵적인 수명이 있으므로 신경 쓸 필요가 없음.
+
+- 하지만, 명시적으로 표기해주는 것이 가능.
+
+- `'a`, `"tick-a"` 또는 `"the lifetime a"`로 발음되는 수명 매개변수는 명명된 수명 매개변수입니다.
+
+- `'a`는 수명 매개변수를 포함한 일반 매개변수를 선언합니다.
+
+- 유형 &'a i32는 적어도 수명 `'a`만큼 오래 지속되는 i32에 대한 참조입니다.
+
+- 컴파일러에게 `'a`를 표기해주지 않을 정도로 이미 충분히 잘 동작하지만, 항상 잘 동작하는 것은 아님.
+
+- 여러 참조를 포함하거나 참조를 반환하는 시나리오에는 종종 명시적인 수명이 필요합니다.
+
+```rust
+fn borrow_x_or_y<'a>(x: &'a str, y: &'a str) -> &'a str;
+```
+
+- 위 경우에서 모든 input/output값이 참조 값을 사용하고 있고, 동일한 lifetime을 갖고 있음.
+
+```rust
+fn borrow_p<'a, 'b>(p: &'a str, q: &'b str) -> &'a str;
+```
+
+- 위 함수에선 매개변수 p가 리턴 값과 동일한 lifetime 갖고 있음.
+
+- 매개변수 q는 별도의 lifetime 갖고 있음.
+
+- p는 리턴하는 참조 값이 존재할 때까지 lifetime 유지됨.
+
+## Lifetimes - structs
+
+- 구조체도 lifetime을 지정할 수 있음.
+
+```rust
+struct Pizza(Vec<i32>);
+struct PizzaSlice<'a> { pizza: &'a Pizza, index: u32 }
+struct PizzaConsumer<'a, 'b: 'a> { // says "b outlives a"
+    slice: PizzaSlice<'a>, // <- currently eating this one
+    pizza: &'b Pizza,      // <- so we can get more pizza
+}
+fn get_another_slice(c: &mut PizzaConsumer, index: u32) {
+    c.slice = PizzaSlice { pizza: c.pizza, index: index };
+}
+let p = Pizza(vec![1, 2, 3, 4]);
+{
+    let s = PizzaSlice { pizza: &p, index: 1 };
+    let mut c = PizzaConsumer { slice: s, pizza: &p };
+    get_another_slice(&mut c, 2);
+}
+```
+
+## Lifetimes - 'static
+
+- `'static`이 의미하는 것은 전체 프로그램 실행 기간 (lifetime) 참조하는 값이 살아 있게 유지해줌.
+
+- 모든 `&str` 리터럴은 `'static` lifetime을 소유함.
+
+## Structured Data With Lifetimes
+
+- 참조가 포함된 구조체나 열거형에는 명시적인 수명이 있어야 합니다.
+
+- 그렇지 않으면 일반적인 수명 규칙이 적용됩니다.
+
+```rust
+struct Foo<'a, 'b> {
+  v: &'a Vec<i32>,
+  s: &'b str,
+}
+```
+
+## Lifetimes in impl Blocks
+
+- Foo 구조체에서 method를 구현하려면 lifetime annotation도 필요합니다!
+
+- 이 블록은 "Foo struct에 대해 수명 'a'와 'b'를 사용하는 구현"으로 읽을 수 있습니다.
+
+```rust
+impl<'a, 'b> Foo<'a, 'b> {
+  fn new(v: &'a Vec<i32>, s: &'b str) -> Foo<'a, 'b> {
+    Foo {
+      v: v,
+      s: s,
+    }
+  }
+}
+```
