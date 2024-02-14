@@ -398,3 +398,117 @@ impl Foo for i32 {
     }
 }
 ```
+- trait을 실행하기 위한 scope 규칙
+    - type에 대한 액세스 권한이 있더라도 type에서 해당 메서드에 액세스하려면 trait을 사용해야 합니다.
+    - impl를 작성하려면 trait이나 type 중 하나를 소유(즉, 직접 정의)해야 합니다.
+
+## Display
+
+```rust
+pub trait Display {
+    fn fmt(&self, &mut Formatter) -> Result<(), Error>;
+}
+impl Display for Point {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Point {}, {})", self.x, self.y)
+    }
+}
+```
+
+- display는 결과 값을 출력할 때 포매팅해주는 옵션임.
+- 디버깅과 기능이 비슷하지만, pretty print 가능함.
+    - 단, standard output은 없고 deriving 도 사용 불가함.
+- `write!` 매크로를 사용해서 실행 가능함.
+
+## Addendum: Drop
+```rust
+pub trait Drop {
+    fn drop(&mut self);
+}
+```
+- 이 스코프 밖으로 벗어났을 때 실행될 코드를 특정
+- `Drop`은 하나의 메소드를 필요로하는데(소문자 drop), 코드 작성하는 사람이 직접 호출하지 않음.
+- 컴파일러가 알아서 삽입해주니 신경쓰지 말 것.
+- 사용자가 type에 대해 직접 실행할 필요도 없고, derive할 수도 없음.
+- 객체를 소멸시켜야하는 특정한 행위가 필요할 때 사용하기 위해 구현되었음.
+  - 예를 들어, 러스터에서 reference counter 포인터 타입으로 `Rc<T>` 가 있고 Drop 룰이 별도로 있음.
+    - Rc 포인터가 1보다 크면 drop이 실행되어 ref count 수를 줄임.
+  - reference count 숫자가 0이 되면 Rc 값은 삭제됨.
+
+## Addendum: Sized vs. ?Sized
+- `Sized`는 컴파일 시점에 상수 사이즈의 타입을 갖고 있다고 선언해주는 것임.
+- `?Sized`는 특정 타입이 사이즈가 존재할 수 있다고 얘기하는 것.
+- 모든 타입은 암묵적으로 Sized이고, ?Sized는 이를 무효화 시킴.
+- ex) Box<T> allows T: ?Sized.
+- 그래서 내가 직접 손댈 일은 거의 없지만, trait bound에서 가끔 보임.
+
+## Trait Objects
+```rust
+trait Foo { fn bar(&self); }
+impl Foo for String {
+    fn bar(&self) { /*...*/ }
+}
+impl Foo for usize {
+    fn bar(&self) { /*...*/  }
+}
+```
+- 위 예제에서 우리는 `T: Foo`와 바운드 되어 있는 어떤 타입과 관계 없이 사용하여 정적 디스패치를 통해 이러한 버전의 bar 중 하나를 호출할 수 있습니다.
+
+- 예를 들어, 코드가 컴파일 되면, 컴파일러는 특정 버전의 bar를 호출하는 과정을 삽입하게 됨.
+    - foo trait의 각 implementor로부터 하나의 함수가 생성됨.
+```rust
+fn blah(x: T) where T: Foo {
+    x.bar()
+}
+fn main() {
+    let s = "Foo".to_string();
+    let u = 12;
+    blah(s);
+    blah(u);
+}
+```
+
+- rust에선 동적 디스패치를 trait object를 사용하는 것도 마ㅏㄴ가지로 가능함.
+- `Box<Foo>` or `&Foo` 같은 것임.
+- 레퍼런스와 박스 뒤에서 데이터가 반드시 trait Foo를 실행해주는 구조.
+- trait 의 기반이 되는 구체적인 유형은 지워져 확인 불가.
+
+```rust
+trait Foo { /*...*/ }
+impl Foo for char { /*...*/ }
+impl Foo for i32  { /*...*/ }
+fn use_foo(f: &Foo) {
+    // No way to figure out if we got a `char` or an `i32`
+    // or anything else!
+    match *f {
+        // What type do we have? I dunno...
+        // error: mismatched types: expected `Foo`, found `_`
+        198 => println!("CIS 198!"),
+        'c' => println!("See?"),
+        _ => println!("Something else..."),
+    }
+}
+use_foo(&'c'); // These coerce into `&Foo`s
+use_foo(&198i32);
+```
+- trait object가 사용되면, 런타임에 메소드 디스패치가 반드시 실행됨.
+- 컴파일러가 trait reference 기반이 되는 타입에 대해 알 길이 없음. (삭제되기 때문)
+- 런타임 패널티를 야기하지만, 동적 타입을 할당하는 일을 핸들링 할 때 무척 유용함.
+
+## Object Safety
+- 모든 trait이 trait object에서 안전하게 사용되는 게 아님.
+- 대표적인 예시로 Clone은 object saftey하지 않으므로 &Clone 유형의 변수를 만들려고 하면 컴파일러 오류가 발생합니다.
+- trait saftey 예시
+  - `Self: Size`가 필요하지 않음.
+  - `Self`를 절대 사용 안하는 메소드여야함.
+  - 모든 타입에 대해 허용하는 메소드로 정의하면 안됨.
+  - 이 메소드는 `Self: Size`가 필요하지 않음.
+
+## Addendum: Generics With Lifetime Bounds
+
+- 일부 제네릭은 lifetime bound를 갖고 있음 -> `T: 'a`
+- 말 그대로 `Type T는 lifetime 'a만큼 최소한 유지가 되어야한다`는 뜻임.
+- 이게 왜 유용한가?
+- Type T에 대한 콜렉션이 있다고 가정하자.
+- 이 콜렉션에 대해 반복 작업을 수행하면, 컬렉션의 수명만큼 모든 작업들이 실행될 것이란 보증이 있어야하는데, 그렇지 않으면 러스트는 안전한 작업이 될 수 없다.
+- 일반적으로 이러한 bound 제공을 위해 `std:Iterator`라는 구조체가 일련의 제약 사항을 포함하고 있음.
